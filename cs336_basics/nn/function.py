@@ -27,3 +27,21 @@ def scaled_dot_product_attention(
         '-inf')) if attn_mask is not None else P
     S = softmax(P, dim=-1)
     return einsum(S, value, "... seq_q seq_kv, ... seq_kv d_v -> ... seq_q d_v")
+
+
+def cross_entropy_loss(
+    logits: Float[Tensor, "... vocab_size"],
+    target: Int[LongTensor, "..."],
+) -> Float[Tensor, "..."]:
+    # -log(softmax(logits)[target])
+    # => -log( exp(logits[target] - max) / sum_j(exp(logits[j] - max)) )
+    # => -log( exp(logits[target] - max) ) + log( sum_j(exp(logits[j] - max)) )
+    # => -logits[target] + max + log( sum_j(exp(logits[j] - max)) )
+    # => -o + max + log_sum_exp
+    max: Float[Tensor, "... 1"] = torch.max(
+        logits, dim=-1, keepdim=True).values
+    log_sum_exp: Float[Tensor, "..."] = torch.log(
+        torch.sum(torch.exp(logits - max), dim=-1))
+    o: Float[Tensor, "..."] = logits.gather(
+        dim=-1, index=target.unsqueeze(-1)).squeeze(-1)
+    return (-o + max.squeeze(-1) + log_sum_exp).mean()

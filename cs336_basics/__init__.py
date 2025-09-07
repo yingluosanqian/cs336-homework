@@ -1,7 +1,7 @@
 import importlib.metadata
 
 from .tokenizer import train_bpe, Tokenizer
-from .model import nn_basic, nn_function
+from .nn import basic, function
 
 # __version__ = importlib.metadata.version("cs336_basics")
 __version__ = "0.1.0"
@@ -11,7 +11,7 @@ __all__ = [
     'train_bpe',
     'Tokenizer',
     # Model
-    'nn_basic',
-    'nn_function',
+    'basic',
+    'function',
     '__version__'
 ]

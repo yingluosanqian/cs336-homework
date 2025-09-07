@@ -5,7 +5,7 @@ from einops import rearrange, einsum
 from jaxtyping import Float, Int
 
 from .initialize import init_linear_weights, init_embedding_weights, init_rmsnorm_weights
-from .nn_function import scaled_dot_product_attention, softmax
+from .function import scaled_dot_product_attention, softmax
 
 
 class Linear(nn.Module):
