@@ -31,7 +31,7 @@ def scaled_dot_product_attention(
 
 def cross_entropy_loss(
     logits: Float[Tensor, "... vocab_size"],
-    target: Int[LongTensor, "..."],
+    target: Int[Tensor, "..."],
 ) -> Float[Tensor, "..."]:
     # -log(softmax(logits)[target])
     # => -log( exp(logits[target] - max) / sum_j(exp(logits[j] - max)) )
