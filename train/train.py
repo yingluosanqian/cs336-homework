@@ -124,8 +124,9 @@ def eval(config: dict,
         context_length = config["context_length"]
 
         data = np.memmap(valid_bin_path, dtype=np.uint32, mode="r")
+        # Only eval on 1/4 of the valid set for speed
         num_of_iters = (len(data) + (batch_size * context_length) -
-                        1) // (batch_size * context_length)
+                        1) // (batch_size * context_length) // 4
         total_loss = 0.0
         total_tokens = 0
         total_correct = 0
