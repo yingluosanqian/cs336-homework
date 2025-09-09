@@ -1,6 +1,9 @@
 import os
 from typing import BinaryIO
 from collections.abc import Iterable
+from pathlib import Path
+from tqdm import tqdm
+
 
 def find_chunk_boundaries(
     file: BinaryIO,
@@ -50,14 +53,22 @@ def find_chunk_boundaries(
     return sorted(set(chunk_boundaries))
 
 
-def load_text_from_file(file_path: str | os.PathLike) -> Iterable[str]:
+def load_text_from_file(file_path: str | os.PathLike, chunk_size: int = (1 << 22)) -> Iterable[str]:
+    file_path = Path(file_path)
+    file_size = file_path.stat().st_size
+    num_processes = (file_size + chunk_size - 1) // chunk_size
     with open(file_path, "rb") as f:
-        num_processes = 4
         boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
 
         # The following is a serial implementation, but you can parallelize this
         # by sending each start/end pair to a set of processes.
-        for start, end in zip(boundaries[:-1], boundaries[1:]):
-            f.seek(start)
-            chunk = f.read(end - start).decode("utf-8", errors="ignore")
-            yield chunk
+        with tqdm(total=file_size,
+                  desc="Load & Train",
+                  unit="B",
+                  unit_scale=True,
+                  unit_divisor=1024) as pbar:
+            for start, end in zip(boundaries[:-1], boundaries[1:]):
+                f.seek(start)
+                chunk = f.read(end - start).decode("utf-8", errors="ignore")
+                pbar.update(end - start)
+                yield chunk

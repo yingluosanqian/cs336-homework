@@ -1,8 +1,12 @@
 
 import os
 import timeit
+import json
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
+import numpy.typing as npt
+import numpy as np
+from pathlib import Path
 
 import regex as re
 
@@ -177,9 +181,35 @@ def train_bpe(
     return vocab, merges
 
 
+def save_bpe_model(vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], file_path: str):
+    vocab_serializable = {str(k): v.hex()
+                          for k, v in vocab.items()}  # hex encoding
+    merges_serializable = [(pair[0].hex(), pair[1].hex()) for pair in merges]
+
+    model_data = {
+        'vocab': vocab_serializable,
+        'merges': merges_serializable
+    }
+
+    with open(file_path, 'w', encoding='utf-8') as f:
+        json.dump(model_data, f, indent=2, ensure_ascii=False)
+
+
+def load_bpe_model(file_path: str) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+    with open(file_path, 'r', encoding='utf-8') as f:
+        model_data = json.load(f)
+
+    vocab = {int(k): bytes.fromhex(v) for k, v in model_data['vocab'].items()}
+    merges = [(bytes.fromhex(pair[0]), bytes.fromhex(pair[1]))
+              for pair in model_data['merges']]
+
+    return vocab, merges
+
 ################################################################################
 # Part II: Tokenizer
 ################################################################################
+
+
 class Tokenizer:
     def __init__(
         self,
@@ -230,7 +260,8 @@ class Tokenizer:
                         apply_id, apply_order = i, self.merges_dict[pair]
             # Apply the merge if available
             if apply_id != -1:
-                tokens = tokens[:apply_id] + [tokens[apply_id] + tokens[apply_id + 1]] + tokens[apply_id + 2:]
+                tokens = tokens[:apply_id] + [tokens[apply_id] +
+                                              tokens[apply_id + 1]] + tokens[apply_id + 2:]
                 done = True
         return [self.bacov[t] for t in tokens]
 
@@ -248,6 +279,40 @@ class Tokenizer:
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
         for text in iterable:
             yield from self.encode(text)
+
+    def encode_file2file(self,
+                         input_path: str | os.PathLike,
+                         output_path: str | os.PathLike,
+                         chunk_size: int = (1 << 20)):
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        chunk = []
+
+        token_generator = self.encode_iterable(load_text_from_file(input_path))
+        temp_output_path = output_path.with_suffix('.bin.tmp')
+        try:
+            with open(temp_output_path, 'w') as f:
+                for token_id in token_generator:
+                    chunk.append(token_id)
+                    if len(chunk) >= chunk_size:
+                        # Batch write to file
+                        np_array = np.array(chunk, dtype=np.int32)
+                        np_array.tofile(f)
+                        chunk = []
+
+                # Write remaining tokens
+                if chunk:
+                    np_array = np.array(chunk, dtype=np.int32)
+                    np_array.tofile(f)
+
+            # Rename temporary file to final file
+            temp_output_path.rename(output_path)
+
+        except Exception as e:
+            # If an error occurs, delete the temporary file
+            if temp_output_path.exists():
+                temp_output_path.unlink()
+            raise e
 
     def decode(self, ids: list[int]) -> str:
         return b"".join([self.vocab[id] for id in ids]).decode("utf-8", errors='replace')

@@ -274,7 +274,8 @@ class TransformerLM(nn.Module):
         self.token_positions: Int[Tensor, "1 context_length"] = rearrange(
             torch.arange(context_length, device=device), "context_length -> 1 context_length")
 
-        self.token_embedding = Embedding(vocab_size, d_model)
+        self.token_embedding = Embedding(vocab_size, d_model,
+                                         device=device, dtype=dtype)
         self.transformer_blocks = nn.ModuleList([
             PreNormTransformerBlock(
                 d_model,
