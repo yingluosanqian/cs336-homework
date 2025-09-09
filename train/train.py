@@ -72,6 +72,7 @@ def train(config: dict):
         weight_decay=config["weight_decay"],
         betas=(config["beta1"], config["beta2"]),
         eps=config["eps"],
+        gradient_clipping=config["gradient_clipping"],
     )
 
     # Load model

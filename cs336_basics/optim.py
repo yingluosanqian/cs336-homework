@@ -1,7 +1,8 @@
 
 
 import torch
-import torch.nn as nn
+import torch.nn as torchnn
+from .nn import utils
 from collections.abc import Callable, Iterable
 from typing import Optional
 import math
@@ -16,6 +17,7 @@ class AdamW(torch.optim.Optimizer):
         weight_decay: float,
         betas: tuple[float, float] = (0.9, 0.95),
         eps: float = 1e-8,
+        gradient_clipping: Optional[float] = None,
     ):
         beta_1, beta_2 = betas
         defaults = {
@@ -27,6 +29,8 @@ class AdamW(torch.optim.Optimizer):
         }
         super().__init__(params, defaults)
 
+        self.gradient_clipping = gradient_clipping
+
     def step(self, closure: Optional[Callable[[], float]] = None) -> Optional[float]:
         loss = None if closure is None else closure()
 
@@ -36,8 +40,11 @@ class AdamW(torch.optim.Optimizer):
             beta_2 = group['beta_2']
             eps = group['eps']
             weight_decay = group['weight_decay']
+            if self.gradient_clipping is not None:
+                utils.gradient_clipping(
+                    group['params'], self.gradient_clipping)
             for p in group['params']:
-                p: nn.Parameter
+                p: torchnn.Parameter
                 if p.grad is None:
                     continue
                 grad = p.grad.data

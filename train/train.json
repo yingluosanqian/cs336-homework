@@ -10,6 +10,7 @@
     "rope_theta": 10000.0,
     "num_layers": 4,
     "num_heads": 16,
+    "gradient_clipping": 0.01,
 
     "weight_decay": 0.01,
     "learning_rate": 3e-4,
