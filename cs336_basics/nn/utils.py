@@ -15,8 +15,14 @@ def gradient_clipping(
     eps: float = 1e-6,
     norm_type: int = 2,
 ):
-    all_norm = torch.stack(
-        [p.grad.data.detach() for p in parameters if p.grad is not None]).norm(norm_type)
+    all_norm = torch.norm(
+        torch.stack([
+            torch.norm(p.grad.detach(), norm_type)
+            for p in parameters
+            if p.grad is not None
+        ]),
+        norm_type
+    )
     if all_norm > max_l2_norm:
         clip_coef = max_l2_norm / (all_norm + eps)
         for p in parameters:
