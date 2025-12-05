@@ -1,7 +1,7 @@
 {
     "batch_size": 128,
     "checkpoint_path": "model/model.pt",
-    "log_path": "log/train.log",
+    "log_path": "log/run.log",
 
     "vocab_size": 10000,
     "context_length": 256,
