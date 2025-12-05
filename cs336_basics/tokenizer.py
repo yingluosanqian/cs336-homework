@@ -17,7 +17,6 @@ from .data_structure import MaxHeap
 ################################################################################
 # Part I: Incremental BPE Training Algorithm
 ################################################################################
-
 def pre_tokenize_train(
     chunks: Iterable[str],
     special_tokens: list[str],
@@ -208,11 +207,10 @@ def load_bpe_model(file_path: str) -> tuple[dict[int, bytes], list[tuple[bytes, 
 
     return vocab, merges
 
+
 ################################################################################
 # Part II: Tokenizer
 ################################################################################
-
-
 class Tokenizer:
     def __init__(
         self,
@@ -263,8 +261,8 @@ class Tokenizer:
                         apply_id, apply_order = i, self.merges_dict[pair]
             # Apply the merge if available
             if apply_id != -1:
-                tokens = tokens[:apply_id] + [tokens[apply_id] +
-                                              tokens[apply_id + 1]] + tokens[apply_id + 2:]
+                tokens[apply_id] += tokens[apply_id + 1]
+                tokens.pop(apply_id + 1)
                 done = True
         return [self.bacov[t] for t in tokens]
 
