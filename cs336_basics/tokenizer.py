@@ -191,6 +191,9 @@ def save_bpe_model(vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], f
         'merges': merges_serializable
     }
 
+    file_path = Path(file_path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
     with open(file_path, 'w', encoding='utf-8') as f:
         json.dump(model_data, f, indent=2, ensure_ascii=False)
 
