@@ -20,8 +20,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("mode",
                         type=str,
-                        choices=["data", "train", "infer"],
-                        help="Mode to run: data, train, or infer")
+                        choices=["tokenizer", "train", "infer"],
+                        help="Mode to run: tokenizer, train, or infer")
     parser.add_argument(
         "--config", type=str, default="config/config.json", help="Path to the config file")
     args = parser.parse_args()
@@ -45,6 +45,54 @@ def init(config):
             # logging.StreamHandler()
         ]
     )
+
+
+def tokenizer(config: dict):
+    dataset_name = config["data"]
+    train_txt_path = config[dataset_name]["train_txt_path"]
+    train_bin_path = config[dataset_name]["train_bin_path"]
+    valid_txt_path = config[dataset_name]["valid_txt_path"]
+    valid_bin_path = config[dataset_name]["valid_bin_path"]
+    bpe_model_path = config[dataset_name]["bpe_model_path"]
+    vocab_size = config["vocab_size"]
+    special_tokens = config["special_tokens"]
+
+    if Path(bpe_model_path).exists():
+        msg = f"BPE model already exists at {bpe_model_path}, loading without retraining."
+        logger.info(msg)
+        print(msg)
+        vocab, merges = cs336_basics.tokenizer.load_bpe_model(bpe_model_path)
+        logger.info("BPE model loaded successfully.")
+        print("BPE model loaded successfully.")
+    else:
+        logger.info(f"Training tokenizer on {train_txt_path}...")
+        vocab, merges = cs336_basics.tokenizer.train_bpe(
+            train_txt_path, vocab_size, special_tokens=special_tokens)
+        cs336_basics.tokenizer.save_bpe_model(
+            vocab, merges, bpe_model_path)
+        new_vocab, new_merges = cs336_basics.tokenizer.load_bpe_model(
+            bpe_model_path)
+        assert vocab == new_vocab and merges == new_merges, "Loaded model does not match saved model!"
+        logger.info("BPE model trained and saved successfully.")
+
+    tokenizer = cs336_basics.tokenizer.Tokenizer(
+        vocab, merges, special_tokens=special_tokens)
+
+    if Path(train_bin_path).exists():
+        msg = f"Tokenized train file already exists at {train_bin_path}, skipping."
+        logger.info(msg)
+        print(msg)
+    else:
+        logger.info(f"Tokenizing {train_txt_path}...")
+        tokenizer.encode_file2file(train_txt_path, train_bin_path)
+
+    if Path(valid_bin_path).exists():
+        msg = f"Tokenized valid file already exists at {valid_bin_path}, skipping."
+        logger.info(msg)
+        print(msg)
+    else:
+        logger.info(f"Tokenizing {valid_txt_path}...")
+        tokenizer.encode_file2file(valid_txt_path, valid_bin_path)
 
 
 def train(config: dict):
@@ -167,34 +215,8 @@ def main():
     # Initialization
     init(config)
 
-    if args.mode == "data":
-        dataset_name = config["data"]
-        train_txt_path = config[dataset_name]["train_txt_path"]
-        train_bin_path = config[dataset_name]["train_bin_path"]
-        valid_txt_path = config[dataset_name]["valid_txt_path"]
-        valid_bin_path = config[dataset_name]["valid_bin_path"]
-        vocab_size = config["vocab_size"]
-        special_tokens = config["special_tokens"]
-
-        logger.info(f"Training tokenizer on {train_txt_path}...")
-        vocab, merges = cs336_basics.tokenizer.train_bpe(
-            train_txt_path, vocab_size, special_tokens=special_tokens)
-        cs336_basics.tokenizer.save_bpe_model(
-            vocab, merges, config[dataset_name]["bpe_model_path"])
-
-        logger.info(f"Tokenizing {train_txt_path}...")
-        tokenizer = cs336_basics.tokenizer.Tokenizer(
-            vocab, merges, special_tokens=special_tokens)
-        tokenizer.encode_file2file(train_txt_path, train_bin_path)
-
-        logger.info(f"Tokenizing {valid_txt_path}...")
-        tokenizer = cs336_basics.tokenizer.Tokenizer(
-            vocab, merges, special_tokens=special_tokens)
-        tokenizer.encode_file2file(valid_txt_path, valid_bin_path)
-
-        new_vocab, new_merges = cs336_basics.tokenizer.load_bpe_model(
-            config[dataset_name]["bpe_model_path"])
-        assert vocab == new_vocab and merges == new_merges, "Loaded model does not match saved model!"
+    if args.mode == "tokenizer":
+        tokenizer(config)
     elif args.mode == "train":
         train(config)
     elif args.mode == "infer":
