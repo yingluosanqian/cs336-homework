@@ -23,7 +23,7 @@ def parse_args():
                         choices=["data", "train", "infer"],
                         help="Mode to run: data, train, or infer")
     parser.add_argument(
-        "--config", type=str, default="train/train.json", help="Path to the config file")
+        "--config", type=str, default="config/config.json", help="Path to the config file")
     args = parser.parse_args()
     return args
 
@@ -192,9 +192,9 @@ def main():
             vocab, merges, special_tokens=special_tokens)
         tokenizer.encode_file2file(valid_txt_path, valid_bin_path)
 
-        # new_vocab, new_merges = cs336_basics.tokenizer.load_bpe_model(
-        #     config[dataset_name]["bpe_model_path"])
-        # assert vocab == new_vocab and merges == new_merges, "Loaded model does not match saved model!"
+        new_vocab, new_merges = cs336_basics.tokenizer.load_bpe_model(
+            config[dataset_name]["bpe_model_path"])
+        assert vocab == new_vocab and merges == new_merges, "Loaded model does not match saved model!"
     elif args.mode == "train":
         train(config)
     elif args.mode == "infer":
