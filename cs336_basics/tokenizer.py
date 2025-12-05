@@ -2,6 +2,7 @@
 import os
 import timeit
 import json
+import multiprocessing as mp
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 import numpy.typing as npt
@@ -211,6 +212,19 @@ def load_bpe_model(file_path: str) -> tuple[dict[int, bytes], list[tuple[bytes, 
 ################################################################################
 # Part II: Tokenizer
 ################################################################################
+_GLOBAL_TOKENIZER = None
+
+
+def _init_worker_tokenizer(tokenizer):
+    # Cache tokenizer instance in each worker to avoid re-pickling per task.
+    global _GLOBAL_TOKENIZER
+    _GLOBAL_TOKENIZER = tokenizer
+
+
+def _encode_text_worker(text: str):
+    return _GLOBAL_TOKENIZER.encode(text)
+
+
 class Tokenizer:
     def __init__(
         self,
@@ -277,9 +291,22 @@ class Tokenizer:
                 result.extend(self._encode_token(token))
         return result
 
-    def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        for text in iterable:
-            yield from self.encode(text)
+    def encode_iterable(self,
+                        iterable: Iterable[str],
+                        use_multiprocessing: bool = True,
+                        num_workers: int | None = 6,
+                        worker_chunksize: int = 4) -> Iterator[int]:
+        if not use_multiprocessing:
+            for text in iterable:
+                yield from self.encode(text)
+            return
+
+        with mp.Pool(processes=num_workers,
+                     initializer=_init_worker_tokenizer,
+                     initargs=(self,)) as pool:
+            for encoded in pool.imap(_encode_text_worker, iterable, chunksize=worker_chunksize):
+                for token_id in encoded:
+                    yield token_id
 
     def encode_file2file(self,
                          input_path: str | os.PathLike,
