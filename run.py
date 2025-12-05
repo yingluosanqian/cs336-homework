@@ -3,6 +3,7 @@ import cs336_basics
 import json
 import argparse
 import numpy as np
+import random
 import torch
 import torch.cuda.nvtx as nvtx
 from tqdm import tqdm
@@ -33,6 +34,8 @@ def parse_args():
         "--config", type=str, default="config/config.json", help="Path to the config file")
     parser.add_argument(
         "--profile", action="store_true", help="Enable short profiling run")
+    parser.add_argument(
+        "--seed", type=int, default=None, help="Seed")
     args = parser.parse_args()
     return args
 
@@ -54,6 +57,16 @@ def init(config):
             # logging.StreamHandler()
         ]
     )
+
+
+def set_seed(seed: int | None):
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 
 def tokenizer(config: dict):
@@ -139,65 +152,83 @@ def train(config: dict, profile: bool = False):
         start_iter = 1 + cs336_basics.nn.utils.load_checkpoint(
             model, optimizer, checkpoint_path
         )
+        print(f"Loaded checkpoint from {checkpoint_path}")
         logger.info(f"Loaded checkpoint from {checkpoint_path}")
     else:
+        print(f"Create new model...")
+        logger.info(f"Create new model...")
         start_iter = 0
+
+    # DataLoader
+    print(f"Prepare dataset/dataloader")
+    logger.info(f"Prepare dataset/dataloader")
+    memmap = np.memmap(train_bin_path, dtype=np.uint32, mode="r")
+    dataset = cs336_basics.CS336Dataset(memmap, context_length)
+    loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        drop_last=True,
+        num_workers=2,
+        pin_memory=True,
+        prefetch_factor=2,
+        persistent_workers=True,
+    )
+    loader_iter = iter(loader)
 
     # Profiling
     profile_begin = 30
     profile_window = 50
 
     # Training
-    data = np.memmap(train_bin_path, dtype=np.uint32, mode="r")
-    num_of_iters = (len(data) + (batch_size * context_length) -
-                    1) // (batch_size * context_length)
+    # skip start_iter batch from checkpoint
+    for _ in range(start_iter):
+        next(loader_iter)
+    num_of_iters = len(dataset) // (batch_size * context_length)
     postfix = {}
+    print(f"Training start")
     with tqdm(total=num_of_iters, initial=start_iter, desc="iterations") as pbar:
-        for iter in range(start_iter, num_of_iters):
-            if profile and iter == profile_begin:
-                nvtx.range_push("profile_window")
-                torch.cuda.synchronize()
-            if profile and iter == profile_begin + profile_window:
-                torch.cuda.synchronize()
+        it = start_iter
+        for x_cpu, y_cpu in loader_iter:
+            if profile and it == profile_begin:
+                nvtx.range_push(f"profile_window_{it}")
+            if profile and it == profile_begin + profile_window:
                 nvtx.range_pop()
                 break
-            with nvtx_range("data_batch"):
-                x, y = cs336_basics.nn.utils.get_batch(
-                    data,
-                    batch_size=batch_size,
-                    context_length=context_length,
-                    device=device,
-                )
-            torch.cuda.synchronize()
-            with nvtx_range("forward"):
+            with nvtx_range(f"data_batch_{it}"):
+                x = x_cpu.to(device, dtype=torch.long, non_blocking=True)
+                y = y_cpu.to(device, dtype=torch.long, non_blocking=True)
+            with nvtx_range(f"forward_{it}"):
                 logits = model(x)
                 loss = cs336_basics.nn.function.cross_entropy_loss(
                     logits=logits, target=y)
-            with nvtx_range("backward"):
+            with nvtx_range(f"backward_{it}"):
                 optimizer.zero_grad()
                 loss.backward()
-            with nvtx_range("optimizer_step"):
+            with nvtx_range(f"optimizer_step_{it}"):
                 optimizer.step()
 
-            if (iter + 1) % 10 == 0:
+            it += 1
+            if it == num_of_iters:
+                break
+            if it % 10 == 0:
                 postfix["loss"] = f"{loss.item():.3f}"
-                logger.info(f"Iter {iter}: {postfix}")
+                logger.info(f"Iter {it}: {postfix}")
                 pbar.set_postfix(postfix, refresh=False)
             pbar.update(1)
-            # Save model every 100 iters
-            if (iter + 1) % 100 == 0:
-                with nvtx_range("save_checkpoint"):
+            # Save model every 200 iters
+            if it % 200 == 0:
+                with nvtx_range(f"save_checkpoint_{it}"):
                     cs336_basics.nn.utils.save_checkpoint(
-                        model, optimizer, iter, checkpoint_path)
-                with nvtx_range("eval"):
+                        model, optimizer, it, checkpoint_path)
+                with nvtx_range(f"eval_{it}"):
                     eval_result = eval(config, model)
                 postfix["eval_loss"] = f"{eval_result['loss']:.3f}"
                 postfix["acc"] = f"{eval_result['accuracy']:.3f}"
                 postfix["perplexity"] = f"{eval_result['perplexity']:.3f}"
-            if (iter + 1) % 1000 == 0:
-                with nvtx_range("save_checkpoint_extra"):
+            if it % 1000 == 0:
+                with nvtx_range(f"save_checkpoint_extra_{it}"):
                     cs336_basics.nn.utils.save_checkpoint(
-                        model, optimizer, iter, checkpoint_path.with_name(f"mode_{iter + 1}.pt"))
+                        model, optimizer, it, checkpoint_path.with_name(f"mode_{it + 1}.pt"))
 
 
 def eval(config: dict,
@@ -250,6 +281,9 @@ def main():
 
     # Initialization
     init(config)
+
+    # Seed
+    set_seed(args.seed)
 
     if args.mode == "tokenizer":
         tokenizer(config)
