@@ -64,14 +64,15 @@ class RMSNorm(nn.Module):
 
     def forward(self, x: Float[Tensor, "... d_model"]) -> Float[Tensor, "... d_model"]:
         # Cast to FP32 first
-        in_type = x.dtype
-        x = x.to(torch.float32)
+        with torch.cuda.nvtx.range("RMSNorm"):
+            in_type = x.dtype
+            x = x.to(torch.float32)
 
-        rs = torch.sum(x**2, dim=-1, keepdim=True)
-        rms = torch.sqrt(rs / self.d_model + self.eps)
+            rs = torch.sum(x**2, dim=-1, keepdim=True)
+            rms = torch.sqrt(rs / self.d_model + self.eps)
 
-        result = x / rms * self.weights
-        return result.to(in_type)
+            result = x / rms * self.weights
+            return result.to(in_type)
 
 
 class SiLu(nn.Module):
@@ -234,7 +235,7 @@ class PreNormTransformerBlock(nn.Module):
     ) -> Float[Tensor, "... seq d_model"]:
         # Sublayer 1: Multi-head Self-Attention
         attn_output = self.mha(self.rmsnorm_1(x),
-                               token_positions=token_positions)
+                            token_positions=token_positions)
         x = x + attn_output
         # Sublayer 2: Position-wise Feed-Forward Network
         ffn_output = self.swiglu(self.rmsnorm_2(x))
@@ -305,7 +306,8 @@ class TransformerLM(nn.Module):
 
         x: Float[Tensor, "batch seq d_model"] = self.token_embedding(input_ids)
         for block in self.transformer_blocks:
-            x = block(x, token_positions=token_positions)
+            with torch.cuda.nvtx.range("TransaformerBlock"):
+                x = block(x, token_positions=token_positions)
         x: Float[Tensor, "batch seq d_model"] = self.rms_norm(x)
         x: Float[Tensor, "batch seq vocab_size"] = self.lm_head(x)
         return x
