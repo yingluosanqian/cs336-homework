@@ -6,6 +6,7 @@ from jaxtyping import Float, Int
 
 from .initialize import init_linear_weights, init_embedding_weights, init_rmsnorm_weights
 from .function import scaled_dot_product_attention, softmax
+from .ops.cutedsl.rms_norm import rms_norm_forward
 
 
 class Linear(nn.Module):
@@ -46,6 +47,31 @@ class Embedding(nn.Module):
         return self.weights[token_ids]
 
 
+class RMSNormFn(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, weights, eps):
+        out = rms_norm_forward(x, weights, eps)
+        ctx.save_for_backward(x, weights)
+        ctx.d = x.shape[-1]
+        ctx.eps = eps
+        return out
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        x, weight = ctx.saved_tensors
+        d = ctx.d
+        eps = ctx.eps
+        go = grad_output.float()
+        rms = torch.sqrt((x * x).mean(dim=-1, keepdim=True) + eps)
+        # dy/dx = w / rms  -  x * w * sum(go * x) / (d * rms^3)
+        grad_x = go * weight / rms
+        dot = (go * weight * x).sum(dim=-1, keepdim=True)
+        grad_x = grad_x - x * dot / (d * rms * rms * rms)
+        reduce_dims = tuple(range(grad_output.dim() - 1))
+        grad_w = (go * x / rms).sum(dim=reduce_dims)
+        return grad_x.to(grad_output.dtype), grad_w.to(weight.dtype), None
+
+
 class RMSNorm(nn.Module):
     def __init__(self, d_model: int, eps: float = 1e-5, device=None, dtype=None):
         '''
@@ -63,16 +89,9 @@ class RMSNorm(nn.Module):
         )
 
     def forward(self, x: Float[Tensor, "... d_model"]) -> Float[Tensor, "... d_model"]:
-        # Cast to FP32 first
         with torch.cuda.nvtx.range("RMSNorm"):
-            in_type = x.dtype
-            x = x.to(torch.float32)
-
-            rs = torch.sum(x**2, dim=-1, keepdim=True)
-            rms = torch.sqrt(rs / self.d_model + self.eps)
-
-            result = x / rms * self.weights
-            return result.to(in_type)
+            out = RMSNormFn.apply(x, self.weights, self.eps)
+            return out
 
 
 class SiLu(nn.Module):
@@ -235,7 +254,7 @@ class PreNormTransformerBlock(nn.Module):
     ) -> Float[Tensor, "... seq d_model"]:
         # Sublayer 1: Multi-head Self-Attention
         attn_output = self.mha(self.rmsnorm_1(x),
-                            token_positions=token_positions)
+                               token_positions=token_positions)
         x = x + attn_output
         # Sublayer 2: Position-wise Feed-Forward Network
         ffn_output = self.swiglu(self.rmsnorm_2(x))
